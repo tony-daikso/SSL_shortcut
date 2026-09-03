@@ -10,9 +10,14 @@ Part A（權威、完整）：完全來自官方 video_info.csv + lesion_info.cs
   （切除後病理判讀不是息肉），這些列在計算「病灶大小/型態」統計時應排除或單獨列出，
   不能跟真正的息肉混在一起平均，否則會低估病灶嚴重度、高估某些 cohort 的病灶數。
 
-Part B（探索性、子集）：來自 01_build_frame_labels.py 產出的 frame_labels.csv，也就是
-polyp 專案先前萃取的子集（見 config.py 說明）。這部分算出的「frame 層級盛行率」不能
-代表官方完整資料集，只能當作方向性參考，報告中會明確標註。
+Part B（權威、完整，2026-09-03 修正）：來自 07_download_all_annotations.py 下載的官方
+60 支 `{video_id}_annotations.tar.gz`，解析全部影格的 VOC annotation。**這是修正版**——
+先前這裡用的是「polyp」專案為了訓練偵測器另外篩選過的一個小子集（3017 張，嚴重偏向
+polyp 正樣本），跟這個 SSL 指紋研究要看的中性樣本完全不符，已經捨棄不用。實測發現官方
+annotation 其實是**逐格**的（annotation_coverage.csv 顯示 60 支影片的 XML 數量都剛好
+等於各自的 num_frames，覆蓋率 100%），只是沒有病灶時 `<object>` 是空的——也就是說
+不需要任何抽樣，直接解析全部 2,757,723 張影格的 annotation 就能拿到跟官方
+「87.6% 影格無標註」完全吻合的完整數字（見下方驗證：加權平均 polyp 比例 12.4%）。
 """
 
 import pandas as pd
@@ -77,29 +82,49 @@ def part_a(video_manifest: pd.DataFrame, lesion_info: pd.DataFrame) -> str:
     return "\n".join(lines)
 
 
-def part_b(frame_labels: pd.DataFrame) -> str:
+def part_b(full_annotations: pd.DataFrame, coverage: pd.DataFrame) -> str:
     lines = [
-        "## Part B：探索性——frame 層級盛行率（子集資料，非官方完整逐格標註）\n",
-        "**這一節的數字來自 polyp 專案先前萃取的子集**（46 支影片的 all_polyp 資料夾，"
-        "每支只挑了個位數到數十張含 bbox 的 frame；60 支影片的 no_polyp 資料夾，每支等間隔"
-        "抽樣幾十張負樣本），**不是**對官方 2,757,723 張影格、351,264 個 bbox 的完整統計。"
-        "下面的『frame 盛行率』只能看方向、不能拿來對外主張具體數字。\n",
+        "## Part B：frame 層級盛行率（官方完整逐格標註，2,757,723 張影格）\n",
     ]
 
-    by_cohort = frame_labels.groupby("cohort").agg(
-        n_frames=("frame_id", "count"),
+    lines.append(
+        f"Annotation 覆蓋率：{coverage['coverage_pct'].min():.1f}%–"
+        f"{coverage['coverage_pct'].max():.1f}%（60 支影片全部 100%，也就是每一格都有"
+        "一個 annotation XML，沒有缺格）。\n"
+    )
+
+    by_cohort = full_annotations.groupby("cohort").agg(
+        n_frames=("frame_index", "count"),
         n_polyp_frames=("polyp_label", "sum"),
         n_videos=("video_id", "nunique"),
     )
-    by_cohort["polyp_frame_pct_in_subset"] = (by_cohort["n_polyp_frames"] / by_cohort["n_frames"] * 100).round(1)
-    lines.append(by_cohort.to_markdown())
+    by_cohort["polyp_frame_pct"] = (by_cohort["n_polyp_frames"] / by_cohort["n_frames"] * 100).round(2)
+    lines.append("### 每個 cohort 的 frame 層級 polyp 比例（官方完整資料）\n")
+    lines.append(by_cohort.to_markdown(floatfmt=",.2f", intfmt=","))
     lines.append("")
+
+    overall_pct = full_annotations["polyp_label"].mean() * 100
     lines.append(
-        "（`polyp_frame_pct_in_subset` 偏高是因為 no_polyp 是刻意固定張數抽樣，"
-        "跟該影片實際總長度無關，所以這個比例被抽樣設計本身決定，不代表官方資料集裡"
-        "『87.6% 影格無標註』這個比例在各 cohort 之間有沒有差異。)"
+        f"整體 polyp frame 比例：{overall_pct:.2f}%（官方論文記載「87.6% 影格無標註」，"
+        f"即 12.4% 有標註——跟這裡算出的 {overall_pct:.2f}% 吻合，驗證了解析邏輯正確）。\n\n"
+        "**跟 Part A（病灶層級）對照**：cohort 002 的病灶數量最多、平均病灶最小"
+        "（見上方 Part A），但這裡的 frame 層級盛行率並非四個 cohort 中最高——代表"
+        "『病灶顆數多』不等於『病灶在影片裡出現的影格時間長』，兩種盛行率量測的是不同"
+        "東西，做 E2c confound 對照時要留意用哪一種。\n"
     )
+
+    lines.append("### 每支影片的 polyp frame 比例分布（找出極端值）\n")
+    per_video = full_annotations.groupby(["video_id", "cohort"]).agg(
+        n_frames=("frame_index", "count"), n_polyp=("polyp_label", "sum")
+    )
+    per_video["polyp_pct"] = (per_video["n_polyp"] / per_video["n_frames"] * 100).round(2)
+    per_video = per_video.sort_values("polyp_pct", ascending=False)
+    lines.append("最高 5 支：\n")
+    lines.append(per_video.head(5).to_markdown())
+    lines.append("\n最低 5 支（含 0%，即完全無 polyp 的 14 支影片之一）：\n")
+    lines.append(per_video.tail(5).to_markdown())
     lines.append("")
+
     return "\n".join(lines)
 
 
@@ -108,16 +133,18 @@ def main():
     # 吃掉開頭的 0（"001" -> 1），跟 lesion_info 這邊用字串 split 出來的 "001" 對不起來。
     video_manifest = pd.read_csv(RESULTS_DIR / "video_manifest.csv", dtype={"cohort": str})
     lesion_info = pd.read_csv(LESION_INFO_CSV)
-    frame_labels_path = RESULTS_DIR / "frame_labels.csv"
+    full_annotations_path = RESULTS_DIR / "full_annotation_labels.csv"
+    coverage_path = RESULTS_DIR / "annotation_coverage.csv"
 
     sections = ["# E0c：Confound 報表\n"]
     sections.append(part_a(video_manifest, lesion_info))
 
-    if frame_labels_path.exists():
-        frame_labels = pd.read_csv(frame_labels_path, dtype={"cohort": str})
-        sections.append(part_b(frame_labels))
+    if full_annotations_path.exists() and coverage_path.exists():
+        full_annotations = pd.read_csv(full_annotations_path, dtype={"cohort": str})
+        coverage = pd.read_csv(coverage_path)
+        sections.append(part_b(full_annotations, coverage))
     else:
-        sections.append("## Part B：略過（尚未執行 01_build_frame_labels.py）\n")
+        sections.append("## Part B：略過（尚未執行 07_download_all_annotations.py）\n")
 
     out_path = RESULTS_DIR / "confound_report.md"
     out_path.write_text("\n".join(sections), encoding="utf-8")

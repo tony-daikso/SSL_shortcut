@@ -3,26 +3,28 @@
 輸出 results/video_manifest.csv，一列一支影片，欄位涵蓋：
 - 來源標籤：cohort（=study_id，從 unique_video_name 前三碼解析）、endoscope_brand、video_id
 - metadata 標籤：fps、num_frames、num_lesions、bbps、age、sex
-- split：依官方規則（cohort 內 VVV 001-010 train / 011-012 val / 013-015 test）指派，
-  切分單位是「整支影片」，不會有同一支影片的 frame 同時出現在兩個 split 裡
-  （對應 E0a「按影片切，不按影格切」的要求）。
+
+**不含 split 欄位**（修正記錄見 config.py）：官方 001-010/011-012/013-015 是息肉偵測
+benchmark 的切分慣例，不是這個 SSL 指紋研究的預設切分。E0a 真正的要求只是「切分單位
+是整支影片，不按影格切」，這件事由需要 train/test 分組的分析（例如 E0e 的 trivial
+baseline，見 geometry_common.py）在當下用 GroupShuffleSplit（依 video_id 分組）自己
+切，不預先綁定某個特定慣例。
 
 不需要任何影格像素資料，只讀 video_info.csv。
 """
 
 import pandas as pd
 
-from config import VIDEO_INFO_CSV, RESULTS_DIR, official_split_for_video
+from config import VIDEO_INFO_CSV, RESULTS_DIR
 
 
 def main():
     df = pd.read_csv(VIDEO_INFO_CSV)
     df = df.rename(columns={"unique_video_name": "video_id"})
     df["cohort"] = df["video_id"].str.split("-").str[0]
-    df["split"] = df["video_id"].apply(official_split_for_video)
 
     cols = [
-        "video_id", "cohort", "endoscope_brand", "split",
+        "video_id", "cohort", "endoscope_brand",
         "fps", "num_frames", "num_lesions", "bbps", "age", "sex",
     ]
     df = df[cols].sort_values(["cohort", "video_id"]).reset_index(drop=True)
@@ -32,9 +34,6 @@ def main():
     df.to_csv(out_path, index=False)
 
     print(f"Wrote {len(df)} videos -> {out_path}")
-    print()
-    print("Split x cohort 分布（確認每個 cohort 都是 10/2/3 支）：")
-    print(df.pivot_table(index="cohort", columns="split", values="video_id", aggfunc="count", fill_value=0))
     print()
     print("Brand x cohort 分布（確認 §3.1 的 brand/cohort 共線問題）：")
     print(df.pivot_table(index="cohort", columns="endoscope_brand", values="video_id", aggfunc="count", fill_value=0))

@@ -5,11 +5,8 @@
    問題的前置證據）。
 2. 1080i 交錯掃描的去交錯處理方式——論文沒說明，需要自己檢查像素。
 
-兩者都只需要用到 01_build_frame_labels.py 已經處理過的子集（frame_labels.csv 的
-metadata + 對應圖檔），不需要完整資料集。frame 尺寸的結論是可信的（子集涵蓋所有 60
-支影片，size 是從官方 annotation 的 <size> 欄位讀出，不是猜的）；去交錯的結論只是
-一個篩檢用的量化 heuristic，不是最終判斷，必須人工複查 results/qc_deinterlace_samples/
-裡存的樣本圖才能下結論。
+讀取 `pilot_frame_labels.csv`（10_merge_pilot_labels.py，來自官方原始資料，見下方
+勘誤說明這件事為什麼重要）。
 
 去交錯 heuristic 的原理：交錯掃描殘留的「梳齒」(combing) 是因為相鄰兩條掃描線來自
 不同時間的兩個 field，在有運動的區域，相鄰行(row i, i+1)的差異會明顯大於間隔一行
@@ -17,13 +14,11 @@ metadata + 對應圖檔），不需要完整資料集。frame 尺寸的結論是
 嫌疑越大。這只是篩檢，不是證明——真正判斷仍要肉眼看樣本圖。
 """
 
-import random
-
 import numpy as np
 import pandas as pd
 from PIL import Image
 
-from config import REAL_COLON_FRAMES_ROOT, RESULTS_DIR
+from config import REPO_ROOT, RESULTS_DIR
 
 SAMPLES_PER_VIDEO = 5
 CROP_SIZE = 400
@@ -38,15 +33,13 @@ def frame_size_check(frame_labels: pd.DataFrame) -> str:
     )
     inconsistent = per_video[per_video["n_distinct_sizes"] > 1]
     lines.append(
-        f"抽查子集涵蓋 {frame_labels['video_id'].nunique()} / 60 支影片。"
-        f"其中 {len(inconsistent)} 支影片在子集內就觀察到超過一種 (width, height) 組合"
-        "（同一支影片內部 FOV 裁切尺寸不一致，可能代表裁切邏輯本身不穩定，或這支影片"
-        "中途換過顯示模式/腳位）。\n"
+        f"pilot 涵蓋 {frame_labels['video_id'].nunique()} 支影片。"
+        f"其中 {len(inconsistent)} 支影片內部觀察到超過一種 (width, height) 組合。\n"
     )
     if len(inconsistent):
         detail = (
             frame_labels[frame_labels["video_id"].isin(inconsistent.index)]
-            .groupby(["video_id", "width", "height"]).size().rename("n_frames_in_subset")
+            .groupby(["video_id", "width", "height"]).size().rename("n_frames_in_pilot")
         )
         lines.append(detail.to_frame().to_markdown())
         lines.append("")
@@ -60,10 +53,9 @@ def frame_size_check(frame_labels: pd.DataFrame) -> str:
     ).sort_values("n_frames", ascending=False)
     lines.append(size_summary.to_markdown())
     lines.append(
-        "\n**解讀**：FOV 尺寸明顯不是單一固定值（見上表多種組合），且不同尺寸群組對應到"
-        "不同 cohort/品牌組合——這正是研究計畫 §3.3 擔心的 FOV 幾何洩漏的直接證據：光是"
-        "影格寬高本身就可能足以猜出 cohort/品牌，不需要看內容。這個問題留給 E0e 正式處理"
-        "（trivial baseline + 統一裁切協定），這裡只負責把『尺寸確實不一致』這件事釘死。\n"
+        "\n**解讀**：FOV 尺寸不是單一固定值，且不同尺寸群組對應到不同 cohort/品牌"
+        "組合——這正是研究計畫 §3.3 擔心的 FOV 幾何洩漏的直接證據。完整的 trivial "
+        "baseline 量化見 E0e（`fov_e0e_baseline_report.md`）。\n"
     )
     return "\n".join(lines)
 
@@ -79,7 +71,6 @@ def interlace_score(gray: np.ndarray) -> float:
 def deinterlace_check(frame_labels: pd.DataFrame) -> str:
     lines = ["## 2. 去交錯自查（篩檢用 heuristic，需人工複查樣本圖）\n"]
 
-    rng = random.Random(RNG_SEED)
     qc_dir = RESULTS_DIR / "qc_deinterlace_samples"
     qc_dir.mkdir(parents=True, exist_ok=True)
 
@@ -87,9 +78,7 @@ def deinterlace_check(frame_labels: pd.DataFrame) -> str:
     for video_id, group in frame_labels.groupby("video_id"):
         sample = group.sample(n=min(SAMPLES_PER_VIDEO, len(group)), random_state=RNG_SEED)
         for _, r in sample.iterrows():
-            img_path = (
-                REAL_COLON_FRAMES_ROOT / r["source_category"] / video_id / "image" / f"{r['frame_id']}.jpg"
-            )
+            img_path = REPO_ROOT / r["frame_path"]
             if not img_path.exists():
                 continue
             im = Image.open(img_path).convert("L")
@@ -110,12 +99,12 @@ def deinterlace_check(frame_labels: pd.DataFrame) -> str:
     lines.append(per_video.to_markdown(index=False))
     lines.append("")
 
-    lines.append(f"### 依品牌分組的 interlace score 中位數（初步看品牌間是否有系統性差異）\n")
+    lines.append("### 依品牌分組的 interlace score 中位數（初步看品牌間是否有系統性差異）\n")
     by_brand = scores.groupby("endoscope_brand")["interlace_score"].agg(["median", "mean", "std", "count"])
     lines.append(by_brand.to_markdown())
     lines.append("")
 
-    top_n = 6
+    top_n = min(6, len(scores))
     top_frames = scores.sort_values("interlace_score", ascending=False).head(top_n)
     lines.append(f"### 已存下分數最高的 {top_n} 張影格中央裁切區塊到 `results/qc_deinterlace_samples/`，供肉眼複查\n")
     saved = []
@@ -129,50 +118,40 @@ def deinterlace_check(frame_labels: pd.DataFrame) -> str:
         crop.save(qc_dir / out_name)
         saved.append(out_name)
     lines.append("\n".join(f"- {n}" for n in saved))
-    lines.append(
-        "\n**人工複查結果（2026-09-03，肉眼檢查上述樣本中的 002-015_1999、004-006_10999 "
-        "兩張）**：兩張都只看到感測器雜訊顆粒（sensor noise grain）與黏膜正常紋理，"
-        "**沒有觀察到水平梳齒/鋸齒狀邊緣**這類典型交錯殘留。與下面的統計篩檢結果（比值"
-        "全部 <1）方向一致，初步支持『這批影格沒有明顯殘留交錯痕跡』的結論，但仍只檢查了"
-        "2 張，樣本數很小，之後有餘力應再抽查更多張（尤其分數最高的 Fujifilm 影片）才能"
-        "把這個結論講得更滿。\n"
-    )
+
     overall_range = f"{scores['interlace_score'].min():.2f}–{scores['interlace_score'].max():.2f}"
     lines.append(
-        f"\n**初步解讀**：分數全部落在 {overall_range} 之間、都小於 1（相鄰行差異其實小於"
-        "隔行差異），沒有出現典型交錯殘留會有的「比值明顯大於 1」的尖峰。方向上比較像是"
-        "**已經做過某種去交錯/平滑處理**，而不是原始交錯掃描直接轉檔。但這仍只是統計上的"
-        "篩檢結果，不是像素級的視覺確認——**這裡的判斷仍待人工打開下方存的樣本圖複查**，"
-        "尤其要注意這批圖本身已經是 JPEG 重新編碼過的版本（見 config.py 說明，comment 欄位"
-        "顯示經過 ffmpeg/libavcodec 處理），如果去交錯是在官方釋出前就做好，這個 heuristic"
-        "量到的其實是『重新編碼後還看不看得出殘留』，不是『官方原始流程有沒有去交錯』——"
-        "這點差異必須在最終結論裡講清楚，避免過度推論。\n"
+        f"\n**這次是在官方原始（非重新編碼過的）影格上量測**（範圍 {overall_range}）。"
+        "肉眼複查時額外發現一張影格（見下方勘誤）有明顯的色彩通道錯位/鬼影，跟色彩通道"
+        "分時擷取（field-sequential 或類似機制）造成的偽影很像，需要更多樣本才能確認"
+        "是不是系統性的、還是單一運動模糊事件——**這裡先如實記錄觀察，不下結論**。\n"
     )
     return "\n".join(lines)
 
 
 def main():
-    frame_labels_path = RESULTS_DIR / "frame_labels.csv"
+    frame_labels_path = RESULTS_DIR / "pilot_frame_labels.csv"
     if not frame_labels_path.exists():
-        raise SystemExit("請先執行 01_build_frame_labels.py")
+        raise SystemExit("請先執行 10_merge_pilot_labels.py")
     frame_labels = pd.read_csv(frame_labels_path, dtype={"cohort": str})
 
     erratum = (
-        "## 勘誤（2026-09-03，執行 E0e 時發現）\n\n"
-        "下面「每支影片實際 frame 尺寸」一節原本只檢查影格尺寸本身，沒有另外檢查影格"
-        "內部是否還殘留 FOV 遮罩邊框，是因為當時用「整行/整列是否全黑」當判斷依據，"
-        "隱含假設遮罩是矩形黑邊。內視鏡的 FOV 遮罩實際上是圓形/八邊形，黑色只出現在"
-        "四個角落，不會讓整行或整列全黑，所以完全沒被抓到。\n\n"
-        "後來在 E0e 肉眼複查裁切前後對照圖時才發現：**幾乎每一張影格的四個角落都有"
-        "明顯的黑色遮罩**，用角落框量測（`fov_protocol.corner_black_fraction()`），"
-        "200 張隨機抽樣影格裡 100% 都有這個現象，20% 大小的角落框內平均 ~11-12% 像素"
-        "是黑的。這比本節原本呈現的「影格寬高不同」更普遍、更系統性，是更直接的 FOV "
-        "幾何洩漏來源。完整量測與依 cohort/品牌的分布見 `results/fov_e0e_baseline_"
-        "report.md`；因應這個發現重新校準的統一裁切協定見 `results/fov_e0e4_"
-        "verification.md`。\n\n"
-        "以下原本的分析（尺寸本身的差異）仍然正確、予以保留，只是不完整。\n"
+        "## 勘誤（2026-09-03，兩次修正）\n\n"
+        "**修正一（FOV 遮罩偵測方法）**：下面「每支影片實際 frame 尺寸」一節原本只檢查"
+        "影格尺寸本身，沒有另外檢查影格內部是否還殘留 FOV 遮罩邊框，是因為當時用「整行/"
+        "整列是否全黑」當判斷依據，隱含假設遮罩是矩形黑邊。內視鏡的 FOV 遮罩實際上是"
+        "圓形/八邊形，黑色只出現在四個角落，不會讓整行或整列全黑，所以完全沒被抓到。"
+        "後來在 E0e 肉眼複查裁切前後對照圖時才發現：幾乎每一張影格的四個角落都有明顯的"
+        "黑色遮罩。完整量測見 `results/fov_e0e_baseline_report.md`。\n\n"
+        "**修正二（資料來源）**：本節與 E0e 原本使用的影格，來自「polyp」物件偵測專案"
+        "先前為了訓練偵測器另外篩選過的一個小子集（3017 張，嚴重偏向 polyp 正樣本），"
+        "不是這個 SSL 指紋研究需要的中性隨機樣本，且該子集的 JPEG 帶有 `Lavc58.134.100`"
+        "重新編碼痕跡，去交錯結論的效度打折扣。已改成直接從 Figshare 官方 API 下載"
+        "原始 `{video_id}_frames.tar.gz`、每支影片在中間 1/3 時間軸均勻抽樣"
+        "（見 09_pilot_sample_frames.py、10_merge_pilot_labels.py），本檔案以下分析"
+        "都已改用這批官方原始 pilot 資料重跑。\n"
     )
-    sections = ["# E0d：資料集規格自查\n", erratum, frame_size_check(frame_labels), deinterlace_check(frame_labels)]
+    sections = ["# E0d：資料集規格自查（pilot，5 支影片）\n", erratum, frame_size_check(frame_labels), deinterlace_check(frame_labels)]
 
     out_path = RESULTS_DIR / "dataset_self_check.md"
     out_path.write_text("\n".join(sections), encoding="utf-8")

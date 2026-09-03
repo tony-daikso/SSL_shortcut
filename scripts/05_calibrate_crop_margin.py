@@ -1,8 +1,10 @@
 """校準 fov_protocol.INSET_FRACTION：中央方形裁切之後，還要往內裁掉多少邊距，才能
 把角落 FOV 遮罩殘留壓到接近乾淨。背景與發現過程見 fov_protocol.py 開頭的修正記錄。
 
-這支腳本本身不是 E0e 的正式產物，是產生「為什麼 INSET_FRACTION 選 0.10」這個答案的
-過程，跑一次記錄下來即可，之後校準結果直接寫死在 fov_protocol.py 裡使用。
+這支腳本本身不是 E0e 的正式產物，是產生「為什麼 INSET_FRACTION 選這個值」這個答案的
+過程，跑一次記錄下來即可，之後校準結果直接寫死在 fov_protocol.py 裡使用。讀取的是
+`pilot_frame_labels.csv`（官方原始資料，見 10_merge_pilot_labels.py），不是任何專案
+篩選過的子集。
 """
 
 import random
@@ -11,7 +13,7 @@ import numpy as np
 import pandas as pd
 from PIL import Image
 
-from config import RESULTS_DIR, REAL_COLON_FRAMES_ROOT
+from config import RESULTS_DIR, REPO_ROOT
 from fov_protocol import corner_black_fraction
 
 CANDIDATE_INSETS = [0.0, 0.05, 0.10, 0.15, 0.20, 0.25, 0.30]
@@ -30,12 +32,12 @@ def unify_square_crop_with_inset(image, inset_fraction):
 
 
 def main():
-    frame_labels = pd.read_csv(RESULTS_DIR / "frame_labels.csv", dtype={"cohort": str})
+    frame_labels = pd.read_csv(RESULTS_DIR / "pilot_frame_labels.csv", dtype={"cohort": str})
     sample = frame_labels.sample(n=min(N_SAMPLE, len(frame_labels)), random_state=0)
 
     images = []
     for _, r in sample.iterrows():
-        p = REAL_COLON_FRAMES_ROOT / r["source_category"] / r["video_id"] / "image" / f"{r['frame_id']}.jpg"
+        p = REPO_ROOT / r["frame_path"]
         if p.exists():
             images.append(Image.open(p))
 

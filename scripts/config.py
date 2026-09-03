@@ -1,45 +1,36 @@
 """Path configuration for E0 scripts.
 
-REAL-Colon 官方原始 60 支影片的 tar（frames）與 annotation 壓縮包本身沒有放進這個
-repo（太大，見研究計畫 §3.5 對算力/儲存的討論）。目前唯一在這台機器上已經解壓出來、
-可直接讀取的 per-frame VOC annotation，是「polyp」物件偵測專案先前為了訓練 YOLO
-從官方 annotation 中萃取出來的一個子集（見 REAL_COLON_FRAMES_ROOT）。
+## 修正記錄（2026-09-03）
 
-這個子集**不是**官方完整的逐格標註：
-- all_polyp/：只包含目視有 lesion bbox 的影格，且經過額外篩選（每支影片只有個位數到
-  數十張，遠少於官方總計 351,264 個 bbox），不是「該影片所有帶 bbox 的影格」。
-- no_polyp/：每支影片等間隔抽樣出的一小批負樣本影格（數十張），不是官方 87.6% 的
-  全部負影格。
+最初的版本用「polyp」物件偵測專案先前從官方 annotation 萃取出的一個子集（見已刪除的
+REAL_COLON_FRAMES_ROOT）當 frame 資料來源，並且用官方 001-010/011-012/013-015 這個
+切分規則當 E0a 的 train/val/test。使用者指出兩者都不對：
+- 那個子集嚴重偏向 polyp 正樣本、負樣本抽樣又稀疏不均，跟這個 SSL 指紋研究需要的
+  中性隨機樣本完全不符（研究計畫 §4 說得很清楚：SSL 預訓練與指紋軸分析都要用
+  REAL-Colon 本來的樣子，2.7M 影格、未經處理）。
+- 官方 001-010/011-012/013-015 切分是**息肉偵測 benchmark 的慣例**（另一個專案在用），
+  跟這裡「按影片切、不按影格切」的要求（避免同影片高度相關的 frame 洩漏）是兩件不同
+  的事——E0a 只要求切分單位是整支影片，沒有要求套用那個特定的切分方案。
 
-因此本專案用它來源生的 frame-level 統計（frame_labels.csv、confound_report 裡標示為
-「子集」的部分）只能當作**探索性/建置管線用**的數字，不能取代日後下載官方完整
-annotation 後重跑的版本。E0d 的自查結論也建立在這個前提上。
-
-若之後下載到官方完整資料，只需要把 REAL_COLON_FRAMES_ROOT 指到新的路徑（維持
-`{video_id}/label/*.xml` 的目錄結構，或者調整 01_build_frame_labels.py 裡的
-glob pattern），其餘腳本不需要改動。
+修正後：
+- Frame 像素資料改成直接從 Figshare 官方 API 下載 `{video_id}_frames.tar.gz`，每支
+  影片自己在中間 1/3 時間軸做均勻抽樣（見 09_pilot_sample_frames.py），不依賴任何
+  其他專案處理過的子集。
+- Annotation（病理標籤）改成下載官方 60 支 `{video_id}_annotations.tar.gz`（見
+  07_download_all_annotations.py）——這批很小、可以整批下載，且實測是逐格標註
+  （每一格都有一個 XML），比任何抽樣子集都更完整、更權威。
+- 不再有一個全域「官方切分」的 split 欄位。任何需要 train/test 分組的分析
+  （例如 E0e 的 trivial baseline）自己在函式內部用 GroupShuffleSplit（依 video_id
+  分組）現場切，避免不小心把某個特定用途（息肉偵測 benchmark）的慣例誤用成整個
+  研究計畫的預設切分。
 """
 
 from pathlib import Path
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
 # 官方 video_info.csv / lesion_info.csv 的本地副本（已複製進本 repo，見 data/raw_refs/）
-VIDEO_INFO_CSV = Path(__file__).resolve().parent.parent / "data" / "raw_refs" / "video_info.csv"
-LESION_INFO_CSV = Path(__file__).resolve().parent.parent / "data" / "raw_refs" / "lesion_info.csv"
+VIDEO_INFO_CSV = REPO_ROOT / "data" / "raw_refs" / "video_info.csv"
+LESION_INFO_CSV = REPO_ROOT / "data" / "raw_refs" / "lesion_info.csv"
 
-# 外部路徑：polyp 專案先前從官方 annotation 萃取出的子集（見上方說明，非本 repo 管理）
-REAL_COLON_FRAMES_ROOT = Path(
-    "/Users/tony.tu/Desktop/戴承智慧/polyp/Real_colon_data/all_data_png"
-)
-
-RESULTS_DIR = Path(__file__).resolve().parent.parent / "results"
-
-# 官方切分規則（研究計畫 §3.1）：每個 cohort 的 VVV 編號 001-010 train、011-012 val、013-015 test
-def official_split_for_video(video_id: str) -> str:
-    vvv = int(video_id.split("-")[1])
-    if 1 <= vvv <= 10:
-        return "train"
-    if 11 <= vvv <= 12:
-        return "val"
-    if 13 <= vvv <= 15:
-        return "test"
-    raise ValueError(f"unexpected video numbering: {video_id}")
+RESULTS_DIR = REPO_ROOT / "results"

@@ -1,15 +1,19 @@
 """E0e 共用工具：幾何特徵定義 + trivial baseline 分類器。
 
-E0d 已經發現：這批本地子集影格幾乎沒有殘留的黑色 FOV 遮罩邊框（content bbox 幾乎
-等於整張影格，見 04_fov_geometry_baseline.py 開頭 docstring 的驗證），所以「FOV 幾何」
-在這批資料上實際上就是**影格本身的像素尺寸**：不需要额外偵測遮罩形狀，寬高/長寬比/
-面積就是全部的幾何訊號來源。這個結論本身也記錄在 results/fov_geometry.csv 裡。
+「FOV 幾何」在這個資料集上有兩個獨立來源：影格本身的像素尺寸（width/height/
+aspect_ratio/area）、以及角落 FOV 遮罩殘留（corner_black_fraction，見
+fov_protocol.py——這個是修正過一次的，早期用「整行/整列全黑」檢查誤判成幾乎不存在，
+實際上普遍存在）。
+
+train_test_split_baseline 不依賴預先算好的 split 欄位，而是每次呼叫時用
+GroupShuffleSplit（依 video_id 分組）現場切 train/test，避免不小心誤用某個特定用途
+（例如息肉偵測 benchmark）的官方切分慣例（見 config.py 的修正記錄）。
 """
 
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import LogisticRegression
-from sklearn.model_selection import LeaveOneGroupOut
+from sklearn.model_selection import GroupShuffleSplit, LeaveOneGroupOut
 from sklearn.preprocessing import StandardScaler
 
 GEOMETRY_FEATURES = ["width", "height", "aspect_ratio", "log_area"]
@@ -29,10 +33,16 @@ def _fit_predict(X_train, y_train, X_test):
     return clf.predict(scaler.transform(X_test))
 
 
-def train_test_split_baseline(df: pd.DataFrame, label_col: str, feature_cols=GEOMETRY_FEATURES) -> dict:
-    """用官方 train split 訓練、官方 test split（完全沒看過的影片）評估。"""
-    train = df[df["split"] == "train"]
-    test = df[df["split"] == "test"]
+def train_test_split_baseline(
+    df: pd.DataFrame, label_col: str, feature_cols=GEOMETRY_FEATURES,
+    test_size: float = 0.2, random_state: int = 0,
+) -> dict:
+    """依 video_id 分組隨機切 train/test（GroupShuffleSplit，固定 random_state 可重現），
+    在完全沒看過的影片上評估——不是套用官方切分慣例，見本檔開頭說明。"""
+    gss = GroupShuffleSplit(n_splits=1, test_size=test_size, random_state=random_state)
+    train_idx, test_idx = next(gss.split(df, groups=df["video_id"]))
+    train, test = df.iloc[train_idx], df.iloc[test_idx]
+
     X_train, y_train = train[feature_cols].values, train[label_col].values
     X_test, y_test = test[feature_cols].values, test[label_col].values
 
