@@ -2,3 +2,8 @@ __pycache__/
 *.pyc
 .DS_Store
 .claude/
+
+# E0.5 合成影像是 11_e05_prepare_images.py 從固定 seed 決定性產生的，可重新產生，
+# 不需要進 git（2500 張 PNG，~250MB）。results/e05_image_manifest.csv、
+# e05_embeddings.npz、e05_report.md 才是需要保留的產物。
+data/e05_synthetic/

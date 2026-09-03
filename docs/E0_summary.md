@@ -83,6 +83,38 @@ accuracy 不是 0/1 的退化值就是 nan），**改用 corner_black_fraction �
 0 當主要判準**——裁切後 500 張影格的中位數 = 0.00000（裁切前 0.57–0.78），
 **閘門判定：✅ 通過**。分類器層級的正式驗證留給全部 60 支影片跑完後。
 
+## E0.5：合成指紋校準——✅ 完成，三項判準全數通過
+
+`results/e05_report.md`。用 pilot 的 500 張真實影格當底圖，注入兩種頻域上相反的
+人工合成指紋（陽性對照，答案已知），跑 frozen DINOv2（ViT-S/14）+ linear probe：
+
+- **pattern_noise**（低階/高頻）：每個合成類別一張固定、無色（同時加到 R/G/B 三個
+  通道）的雜訊紋理，模擬感測器 PRNU。
+- **color_shift**（高階/低頻）：每個合成類別一個固定的色相旋轉角度，模擬白平衡/
+  色彩處理的系統性色偏，刻意跟 color jitter 的 hue 參數對齊，讓機制比較公平。
+
+**E0.5a（probe 抓得到嗎）**：pattern_noise 45.2%、color_shift 47.8%（chance 25%，
+clean 對照組 24.8%，符合預期）——✅ 通過。
+
+**E0.5b（兩種訊號的 probe 靈敏度是否對等）**：差距 0.026（<0.10 門檻）——✅ 通過。
+中間過程踩過一個坑：兩者原始設計（彩色雜訊 + 任意方向 RGB 偏移）在同一振幅下，
+color_shift 比 pattern_noise 好測超過 0.13，因為 ViT 的 14x14 patch embedding 對
+逐像素獨立雜訊有類似平均池化的抑制效果，對整張圖一致的偏移完全不會削弱——這正是
+E0.5b 設計要抓的「probe 頻率響應不對等」問題，靠加大雜訊振幅（做成無色）校準回來。
+
+**E0.5c（機制驗證：jitter 該壓的壓下去、不該壓的別亂壓）**：pattern_noise 套用
+color jitter 後只掉 0.041（幾乎不受影響）；color_shift 掉 0.208（趨近 chance）——
+✅ 通過，『一條降一條平』的機制性預測在合成資料上成立。中間也踩過坑：一開始
+color_shift 用任意方向 RGB 向量時，jitter 後只掉 ~3%（因為 jitter 的
+brightness/contrast/saturation/hue 不保證能抵銷任意方向的向量），改成色相旋轉、
+直接對齊 hue 這個自由度後才有乾淨的因果關係。
+
+**一個更關鍵的 bug**：校準過程中一度發現數字在「沒改任何參數」的情況下重跑就大幅
+跳動，追查後發現是 `_class_seed()` 用了 Python 內建 `hash()` 對字串取雜湊，而
+字串 hash 預設受 `PYTHONHASHSEED` 隨機化影響，每次重新啟動 Python process
+都會變、完全不可重現。改用 `hashlib.md5` 解決，兩次獨立執行已驗證產出的影像位元組
+對位元組相同。**這個 bug 如果沒抓到，後面所有校準都是在追一個會自己亂動的目標。**
+
 ## 已知限制（誠實記錄）
 
 1. **frame 像素/幾何資料目前只有 5 支影片的 pilot**（500 張），是否擴大到全部
@@ -97,7 +129,9 @@ accuracy 不是 0/1 的退化值就是 nan），**改用 corner_black_fraction �
 
 ## 下一步
 
-E0（含 E0e）在 pilot 規模上已完成、流程已驗證正確。下一步是：(a) 決定是否把
-frame 抽樣擴大到全部 60 支影片以取得統計上站得住腳的 E0e 結論，或 (b) 直接進入
-計畫 §5/§6 的 **E1：L1 指紋可解碼性**（frozen DINOv2 + linear probe），並拿 pilot
-量到的 trivial baseline（純尺寸/角落殘留）當下限比較基準。
+E0（含 E0e、E0.5）在 pilot 規模上已完成、流程已驗證正確，E0.5 三項判準全數通過，
+代表 frozen DINOv2 + linear probe 這個量測工具本身是可信的，可以拿去用在真實資料
+上。下一步是：(a) 決定是否把 frame 抽樣擴大到全部 60 支影片以取得統計上站得住腳的
+E0e/E1 結論，或 (b) 直接進入計畫 §5/§6 的 **E1：L1 指紋可解碼性**（frozen DINOv2 +
+linear probe，用真實 cohort/品牌/video ID 當標籤），並拿 pilot 量到的 trivial
+baseline（純尺寸/角落殘留）當下限比較基準。

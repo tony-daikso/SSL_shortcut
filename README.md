@@ -3,8 +3,8 @@
 研究計畫：內視鏡自監督學習中的採集捷徑（REAL-Colon）。完整計畫見 Notion：
 https://app.notion.com/p/3d08ebc0eef38055834bc7ab97b3f024
 
-本 repo 目前涵蓋計畫 §6 的 **E0：資料準備** 與 **E0e：FOV 幾何洩漏檢查**。之後的
-E1（指紋可解碼性）等會是獨立的後續階段。
+本 repo 目前涵蓋計畫 §6 的 **E0：資料準備**、**E0e：FOV 幾何洩漏檢查**、
+**E0.5：合成指紋校準**。之後的 E1（指紋可解碼性）會是獨立的後續階段。
 
 ## 跟 SSL_research（既有 Phase 0 repo）的關係
 
@@ -58,7 +58,13 @@ python3 03_dataset_self_check.py         # E0d：影格尺寸自查 + 去交錯 
 python3 04_fov_geometry_baseline.py      # E0e-1/2：FOV 幾何特徵 + trivial baseline（裁切前）
 python3 05_calibrate_crop_margin.py      # 校準統一裁切協定的邊距參數
 python3 06_verify_unify_crop.py          # E0e-3/4：套用統一裁切協定 + 驗證 baseline 掉到 chance
+python3 11_e05_prepare_images.py         # E0.5：注入合成指紋（pattern_noise/color_shift）
+python3 12_e05_extract_embeddings.py     # 對合成影像跑 frozen DINOv2 抽 embedding
+python3 13_e05_run_probes.py             # E0.5a/b/c：linear probe 驗證 + 機制檢驗
 ```
+
+`data/e05_synthetic/` 是 `11_e05_prepare_images.py` 從固定 seed 決定性產生的 2500 張
+PNG（500 張底圖 x 5 個變體），沒有進 git（可重新產生，見 `.gitignore`）。
 
 輸出都在 `results/`：
 - `video_manifest.csv`：60 支影片的來源/metadata 標籤（不含 split，見上方修正記錄）
@@ -73,8 +79,10 @@ python3 06_verify_unify_crop.py          # E0e-3/4：套用統一裁切協定 + 
 - `fov_crop_margin_calibration.md`：裁切邊距（`fov_protocol.INSET_FRACTION`）的校準過程
 - `fov_e0e4_verification.md`：E0e-3/4，套用統一裁切協定後重跑驗證的結果
 - `qc_unify_crop_samples/`：裁切前後對照圖，供肉眼複查
+- `e05_image_manifest.csv` / `e05_embeddings.npz` / `e05_report.md`：E0.5 合成指紋
+  校準的完整結果（三項判準 E0.5a/b/c 全數通過）
 
-## 兩個值得注意的發現
+## 三個值得注意的發現
 
 1. **FOV 角落遮罩殘留**：E0d 一開始用「整行/整列是否全黑」檢查，結論是「幾乎沒有」，
    但這個方法有漏洞——內視鏡遮罩是圓形/八邊形，黑色只出現在四個角落，不會讓整行/整列
@@ -84,5 +92,10 @@ python3 06_verify_unify_crop.py          # E0e-3/4：套用統一裁切協定 + 
    影格左上角有完整的日期/時間戳記 + 右上角拍攝設定資訊——這是比任何幾何統計量都更
    直接可讀的採集指紋。統一裁切協定實測都能一併裁掉。詳見
    `fov_e0e_baseline_report.md`。
+3. **Python `hash()` 字串隨機化的坑**：E0.5 一開始用內建 `hash((class_id, salt))`
+   決定「固定」合成指紋的 seed，結果每次重新執行腳本（新 process）都因為
+   `PYTHONHASHSEED` 隨機化換一組不同的雜訊/色偏，完全不可重現，一度讓校準過程
+   誤以為是振幅在造成數字跳動。改用 `hashlib.md5` 後解決，見
+   `scripts/e05_fingerprints.py`。
 
 完整結論與交接記錄見 [docs/E0_summary.md](docs/E0_summary.md)。
