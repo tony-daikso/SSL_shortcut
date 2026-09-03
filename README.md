@@ -3,7 +3,7 @@
 研究計畫：內視鏡自監督學習中的採集捷徑（REAL-Colon）。完整計畫見 Notion：
 https://app.notion.com/p/3d08ebc0eef38055834bc7ab97b3f024
 
-本 repo 目前只涵蓋計畫 §6 的 **E0：資料準備** 這一步。之後的 E0e（FOV 幾何洩漏檢查）、
+本 repo 目前涵蓋計畫 §6 的 **E0：資料準備** 與 **E0e：FOV 幾何洩漏檢查**。之後的
 E1（指紋可解碼性）等會是獨立的後續階段。
 
 ## 跟 SSL_research（既有 Phase 0 repo）的關係
@@ -36,13 +36,27 @@ python3 00_build_video_manifest.py     # E0a + E0b(video 層級)：官方切分 
 python3 01_build_frame_labels.py       # E0b(frame 層級)：polyp/no-polyp 標籤 + 實際影格尺寸
 python3 02_confound_report.py          # E0c：per-cohort 盛行率/大小/型態/histology 分布
 python3 03_dataset_self_check.py       # E0d：影格尺寸自查 + 去交錯 heuristic 篩檢
+python3 04_fov_geometry_baseline.py    # E0e-1/2：FOV 幾何特徵 + trivial baseline（裁切前）
+python3 05_calibrate_crop_margin.py    # 校準統一裁切協定的邊距參數
+python3 06_verify_unify_crop.py        # E0e-3/4：套用統一裁切協定 + 驗證 baseline 掉到 chance
 ```
 
 輸出都在 `results/`：
 - `video_manifest.csv`：60 支影片的來源/metadata 標籤 + split
 - `frame_labels.csv`：3017 張抽樣影格的三組標籤
 - `confound_report.md`：E0c 報表
-- `dataset_self_check.md`：E0d 報表
+- `dataset_self_check.md`：E0d 報表（含一則勘誤，見下方 E0e 說明）
 - `qc_deinterlace_samples/`：去交錯自查挑出的可疑影格裁切圖，供肉眼複查
+- `fov_geometry.csv` / `fov_e0e_baseline_report.md`：E0e-1/2，每支影片的幾何特徵 +
+  trivial baseline 準確率
+- `fov_crop_margin_calibration.md`：裁切邊距（`fov_protocol.INSET_FRACTION`）的校準過程
+- `fov_e0e4_verification.md`：E0e-3/4，套用統一裁切協定後重跑 baseline 的驗證結果
+- `qc_unify_crop_samples/`：裁切前後對照圖，供肉眼複查
+
+**E0e 的重要發現**：E0d 一開始用「整行/整列是否全黑」檢查 FOV 遮罩殘留，結論是
+「幾乎沒有」，但這個方法有漏洞——內視鏡遮罩是圓形/八邊形，黑色只出現在四個角落，
+不會讓整行/整列全黑。肉眼複查裁切前後對照圖才發現幾乎每張影格角落都有明顯黑色
+遮罩（100% 抽樣影格都有），比單純的影格尺寸差異更普遍。`dataset_self_check.md`
+已經加上勘誤，`04_fov_geometry_baseline.py` 正式把它當一個特徵處理。
 
 完整結論與交接記錄見 [docs/E0_summary.md](docs/E0_summary.md)。

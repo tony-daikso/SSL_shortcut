@@ -157,7 +157,22 @@ def main():
         raise SystemExit("請先執行 01_build_frame_labels.py")
     frame_labels = pd.read_csv(frame_labels_path, dtype={"cohort": str})
 
-    sections = ["# E0d：資料集規格自查\n", frame_size_check(frame_labels), deinterlace_check(frame_labels)]
+    erratum = (
+        "## 勘誤（2026-09-03，執行 E0e 時發現）\n\n"
+        "下面「每支影片實際 frame 尺寸」一節原本只檢查影格尺寸本身，沒有另外檢查影格"
+        "內部是否還殘留 FOV 遮罩邊框，是因為當時用「整行/整列是否全黑」當判斷依據，"
+        "隱含假設遮罩是矩形黑邊。內視鏡的 FOV 遮罩實際上是圓形/八邊形，黑色只出現在"
+        "四個角落，不會讓整行或整列全黑，所以完全沒被抓到。\n\n"
+        "後來在 E0e 肉眼複查裁切前後對照圖時才發現：**幾乎每一張影格的四個角落都有"
+        "明顯的黑色遮罩**，用角落框量測（`fov_protocol.corner_black_fraction()`），"
+        "200 張隨機抽樣影格裡 100% 都有這個現象，20% 大小的角落框內平均 ~11-12% 像素"
+        "是黑的。這比本節原本呈現的「影格寬高不同」更普遍、更系統性，是更直接的 FOV "
+        "幾何洩漏來源。完整量測與依 cohort/品牌的分布見 `results/fov_e0e_baseline_"
+        "report.md`；因應這個發現重新校準的統一裁切協定見 `results/fov_e0e4_"
+        "verification.md`。\n\n"
+        "以下原本的分析（尺寸本身的差異）仍然正確、予以保留，只是不完整。\n"
+    )
+    sections = ["# E0d：資料集規格自查\n", erratum, frame_size_check(frame_labels), deinterlace_check(frame_labels)]
 
     out_path = RESULTS_DIR / "dataset_self_check.md"
     out_path.write_text("\n".join(sections), encoding="utf-8")

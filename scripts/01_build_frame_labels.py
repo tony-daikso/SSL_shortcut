@@ -44,7 +44,8 @@ def main():
             "不在本 repo 管理範圍內，請確認該路徑是否還存在，或修改 config.py。"
         )
 
-    video_manifest = pd.read_csv(RESULTS_DIR / "video_manifest.csv")
+    # dtype=str 避免 cohort 欄位（"001".."004"）被當數字讀入而吃掉開頭的 0
+    video_manifest = pd.read_csv(RESULTS_DIR / "video_manifest.csv", dtype={"cohort": str})
     video_lookup = video_manifest.set_index("video_id")[["cohort", "endoscope_brand", "split"]]
 
     rows = []
