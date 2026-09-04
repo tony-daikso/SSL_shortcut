@@ -4,7 +4,7 @@
 https://app.notion.com/p/3d08ebc0eef38055834bc7ab97b3f024
 
 本 repo 目前涵蓋計畫 §6 的 **E0：資料準備**、**E0e：FOV 幾何洩漏檢查**、
-**E0.5：合成指紋校準**。之後的 E1（指紋可解碼性）會是獨立的後續階段。
+**E0.5：合成指紋校準**、**E1：L1 指紋可解碼性**（pilot 規模流程驗證）。
 
 ## 跟 SSL_research（既有 Phase 0 repo）的關係
 
@@ -61,6 +61,9 @@ python3 06_verify_unify_crop.py          # E0e-3/4：套用統一裁切協定 + 
 python3 11_e05_prepare_images.py         # E0.5：注入合成指紋（pattern_noise/color_shift）
 python3 12_e05_extract_embeddings.py     # 對合成影像跑 frozen DINOv2 抽 embedding
 python3 13_e05_run_probes.py             # E0.5a/b/c：linear probe 驗證 + 機制檢驗
+python3 14_e1_extract_embeddings.py      # E1：對 500 張真實影格跑 3 種 backbone 抽 embedding
+python3 15_e1_probes.py                  # E1a/b/d：指紋/病理 probe + backbone 對照
+python3 16_e1_pca_analysis.py            # E1c：PCA 維度分析
 ```
 
 `data/e05_synthetic/` 是 `11_e05_prepare_images.py` 從固定 seed 決定性產生的 2500 張
@@ -81,8 +84,10 @@ PNG（500 張底圖 x 5 個變體），沒有進 git（可重新產生，見 `.g
 - `qc_unify_crop_samples/`：裁切前後對照圖，供肉眼複查
 - `e05_image_manifest.csv` / `e05_embeddings.npz` / `e05_report.md`：E0.5 合成指紋
   校準的完整結果（三項判準 E0.5a/b/c 全數通過）
+- `e1_embeddings.npz` / `e1_probe_report.md` / `e1_pca_report.md`：E1a/b/c/d 的
+  pilot 驗證結果（完整結論見 [docs/E1_summary.md](docs/E1_summary.md)）
 
-## 三個值得注意的發現
+## 四個值得注意的發現
 
 1. **FOV 角落遮罩殘留**：E0d 一開始用「整行/整列是否全黑」檢查，結論是「幾乎沒有」，
    但這個方法有漏洞——內視鏡遮罩是圓形/八邊形，黑色只出現在四個角落，不會讓整行/整列
@@ -97,5 +102,10 @@ PNG（500 張底圖 x 5 個變體），沒有進 git（可重新產生，見 `.g
    `PYTHONHASHSEED` 隨機化換一組不同的雜訊/色偏，完全不可重現，一度讓校準過程
    誤以為是振幅在造成數字跳動。改用 `hashlib.md5` 後解決，見
    `scripts/e05_fingerprints.py`。
+4. **隨機初始化的 DINOv2 就能把 video ID 猜到 78.9%**（chance 20%，frozen 預訓練
+   版是 91.0%）——E1b 的 backbone 對照顯示，相當一部分「指紋可解碼性」其實是任何
+   ViT 架構的歸納偏見造成的附帶編碼，不是 SSL 目標函數主動學來的。詳見
+   `docs/E1_summary.md`。
 
-完整結論與交接記錄見 [docs/E0_summary.md](docs/E0_summary.md)。
+完整結論與交接記錄見 [docs/E0_summary.md](docs/E0_summary.md)、
+[docs/E1_summary.md](docs/E1_summary.md)。
