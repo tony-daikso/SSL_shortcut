@@ -4,9 +4,9 @@
 https://app.notion.com/p/3d08ebc0eef38055834bc7ab97b3f024
 
 本 repo 目前涵蓋計畫 §6 的 **E0：資料準備**、**E0e：FOV 幾何洩漏檢查**、
-**E0.5：合成指紋校準**、**E1：L1 指紋可解碼性**、**E3：augmentation 劑量反應**
-——除 E0.5（設計上維持 pilot 規模當陽性對照）外，其餘都已在全部 60 支影片規模
-上完成（正式結論，非 pilot 流程驗證）。
+**E0.5：合成指紋校準**、**E1：L1 指紋可解碼性**、**E3：augmentation 劑量反應**、
+**E4：機制推導的修法（雜訊白化）**——除 E0.5（設計上維持 pilot 規模當陽性對照）
+外，其餘都已在全部 60 支影片規模上完成（正式結論，非 pilot 流程驗證）。
 
 ## 跟 SSL_research（既有 Phase 0 repo）的關係
 
@@ -69,6 +69,10 @@ python3 17_e3_extract_synthetic_embeddings.py  # E3a/b：合成指紋跨 jitter 
 python3 18_e3_extract_real_embeddings.py       # E3b：真實影格跨 jitter 強度抽 embedding
 python3 19_e3_ssim_control.py                  # E3c：SSIM trivial-destruction control
 python3 20_e3_probes.py                        # E3：三條劑量反應曲線 + 判讀
+python3 21_e4_extract_synthetic_embeddings.py  # E4a：合成指紋跨白化強度抽 embedding
+python3 22_e4_extract_real_embeddings.py       # E4d：真實影格跨白化強度抽 embedding
+python3 23_e4_ssim_control.py                  # E4：SSIM trivial-destruction control
+python3 24_e4_probes.py                        # E4：驗證迴路 + 病理代價判讀
 ```
 
 `data/e05_synthetic/` 是 `11_e05_prepare_images.py` 從固定 seed 決定性產生的 2500 張
@@ -94,8 +98,11 @@ PNG（500 張底圖 x 5 個變體），沒有進 git（可重新產生，見 `.g
 - `e3_synthetic_embeddings.npz` / `e3_real_embeddings.npz` / `e3_ssim_control.csv` /
   `e3_dose_response_report.md`：E3a/b/c 的完整結果（完整結論見
   [docs/E3_summary.md](docs/E3_summary.md)）
+- `e4_synthetic_embeddings.npz` / `e4_real_embeddings.npz` / `e4_ssim_control.csv` /
+  `e4_whitening_report.md`：E4a/d 雜訊白化驗證的完整結果（完整結論見
+  [docs/E4_summary.md](docs/E4_summary.md)）
 
-## 六個值得注意的發現
+## 七個值得注意的發現
 
 1. **FOV 角落遮罩殘留**：E0d 一開始用「整行/整列是否全黑」檢查，結論是「幾乎沒有」，
    但這個方法有漏洞——內視鏡遮罩是圓形/八邊形，黑色只出現在四個角落，不會讓整行/整列
@@ -129,6 +136,14 @@ PNG（500 張底圖 x 5 個變體），沒有進 git（可重新產生，見 `.g
    88.5%，全部 60 支影片規模）。這是計畫 §7 定義的「殘餘地板」——色彩類指紋可以
    被便宜地壓下去，但感測器雜訊類指紋是 augmentation 結構上碰不到的下限，直接
    指向 E4（雜訊白化）的必要性。詳見 `docs/E3_summary.md`。
+7. **E4 驗證迴路成立：雜訊白化真的把殘餘地板壓下去了**——E3 壓不下去的
+   pattern_noise，在既有 jitter 之上加上雜訊白化（每張圖獨立重新抽樣高頻殘差）
+   後，隨白化強度單調下降到 chance 以下（43.0%→24.1%，chance 25%），
+   color_shift 維持平穩（不受影響，證明是針對性修法而非巧合），polyp_label
+   幾乎零代價（88.6%→87.7%）。證明「感測器雜訊類指紋無法被消除」只是對 color
+   jitter 這類手段而言，換一個對準雜訊維度設計的手段就能壓下去。詳見
+   `docs/E4_summary.md`。
 
 完整結論與交接記錄見 [docs/E0_summary.md](docs/E0_summary.md)、
-[docs/E1_summary.md](docs/E1_summary.md)、[docs/E3_summary.md](docs/E3_summary.md)。
+[docs/E1_summary.md](docs/E1_summary.md)、[docs/E3_summary.md](docs/E3_summary.md)、
+[docs/E4_summary.md](docs/E4_summary.md)。
