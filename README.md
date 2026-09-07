@@ -4,8 +4,9 @@
 https://app.notion.com/p/3d08ebc0eef38055834bc7ab97b3f024
 
 本 repo 目前涵蓋計畫 §6 的 **E0：資料準備**、**E0e：FOV 幾何洩漏檢查**、
-**E0.5：合成指紋校準**、**E1：L1 指紋可解碼性**——E0/E0e/E1 已在全部 60 支影片
-規模上完成（正式結論，非 pilot 流程驗證）。
+**E0.5：合成指紋校準**、**E1：L1 指紋可解碼性**、**E3：augmentation 劑量反應**
+——除 E0.5（設計上維持 pilot 規模當陽性對照）外，其餘都已在全部 60 支影片規模
+上完成（正式結論，非 pilot 流程驗證）。
 
 ## 跟 SSL_research（既有 Phase 0 repo）的關係
 
@@ -64,6 +65,10 @@ python3 13_e05_run_probes.py             # E0.5a/b/c：linear probe 驗證 + 機
 python3 14_e1_extract_embeddings.py      # E1：對真實影格跑 3 種 backbone 抽 embedding
 python3 15_e1_probes.py                  # E1a/b/d：指紋/病理 probe + backbone 對照
 python3 16_e1_pca_analysis.py            # E1c：PCA 維度分析
+python3 17_e3_extract_synthetic_embeddings.py  # E3a/b：合成指紋跨 jitter 強度抽 embedding
+python3 18_e3_extract_real_embeddings.py       # E3b：真實影格跨 jitter 強度抽 embedding
+python3 19_e3_ssim_control.py                  # E3c：SSIM trivial-destruction control
+python3 20_e3_probes.py                        # E3：三條劑量反應曲線 + 判讀
 ```
 
 `data/e05_synthetic/` 是 `11_e05_prepare_images.py` 從固定 seed 決定性產生的 2500 張
@@ -86,8 +91,11 @@ PNG（500 張底圖 x 5 個變體），沒有進 git（可重新產生，見 `.g
   校準的完整結果（三項判準 E0.5a/b/c 全數通過）
 - `e1_embeddings.npz` / `e1_probe_report.md` / `e1_pca_report.md`：E1a/b/c/d 在
   全部 60 支影片上的正式結果（完整結論見 [docs/E1_summary.md](docs/E1_summary.md)）
+- `e3_synthetic_embeddings.npz` / `e3_real_embeddings.npz` / `e3_ssim_control.csv` /
+  `e3_dose_response_report.md`：E3a/b/c 的完整結果（完整結論見
+  [docs/E3_summary.md](docs/E3_summary.md)）
 
-## 五個值得注意的發現
+## 六個值得注意的發現
 
 1. **FOV 角落遮罩殘留**：E0d 一開始用「整行/整列是否全黑」檢查，結論是「幾乎沒有」，
    但這個方法有漏洞——內視鏡遮罩是圓形/八邊形，黑色只出現在四個角落，不會讓整行/整列
@@ -114,6 +122,13 @@ PNG（500 張底圖 x 5 個變體），沒有進 git（可重新產生，見 `.g
    （89.0%／85.5%，majority 85.8%）。在全部 60 支影片規模下，這個對比穩固成立，
    支持「acquisition shortcut」確實存在：embedding 把容量分配在採集特徵上遠勝於
    病理特徵。詳見 `docs/E1_summary.md` 的 E1d 段落。
+6. **E3 劑量反應：一條降一條平，且病理幾乎零代價**——color jitter 強度從 0 拉到
+   2 倍基準值時，color_shift（合成，模擬白平衡色偏）從 47.8% 降到 22.9%（趨近/
+   低於 chance 25%），但 pattern_noise（合成，模擬感測器雜訊）只從 45.2% 降到
+   37.9%，全程遠高於 chance；同時真實 polyp_label 可分性幾乎不掉（89.0%→
+   88.5%，全部 60 支影片規模）。這是計畫 §7 定義的「殘餘地板」——色彩類指紋可以
+   被便宜地壓下去，但感測器雜訊類指紋是 augmentation 結構上碰不到的下限，直接
+   指向 E4（雜訊白化）的必要性。詳見 `docs/E3_summary.md`。
 
 完整結論與交接記錄見 [docs/E0_summary.md](docs/E0_summary.md)、
-[docs/E1_summary.md](docs/E1_summary.md)。
+[docs/E1_summary.md](docs/E1_summary.md)、[docs/E3_summary.md](docs/E3_summary.md)。

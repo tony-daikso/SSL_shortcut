@@ -3,6 +3,7 @@ numpy
 pillow
 tabulate
 scikit-learn
+scipy
 torch
 torchvision
 requests
