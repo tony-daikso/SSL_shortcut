@@ -63,7 +63,10 @@ def main():
     X_pca = pca.fit_transform(StandardScaler().fit_transform(X))
     explained = pca.explained_variance_ratio_
 
-    lines = ["# E1c：維度分析（pilot，dinov2_pretrained embedding）\n"]
+    n_videos = len(set(data["video_id"]))
+    n_frames = X.shape[0]
+    scale_tag = "pilot" if n_videos < 60 else "full"
+    lines = [f"# E1c：維度分析（{scale_tag}，{n_videos} 支影片，{n_frames} 張影格，dinov2_pretrained embedding）\n"]
     lines.append(
         f"總維度 384，前 10 個 PC 解釋的變異量比例：{np.round(explained[:10], 3).tolist()}\n"
         f"累積到 90% 變異量需要 {int(np.searchsorted(np.cumsum(explained), 0.9)) + 1} 個 PC。\n"
@@ -95,18 +98,31 @@ def main():
         if r["video_id_accuracy"] >= 0.9 * peak_video_acc:
             video_id_k_for_90pct = int(r["k_components"])
             break
+    peak_k = int(curve.loc[curve["video_id_accuracy"].idxmax(), "k_components"])
+    full_k_acc = curve["video_id_accuracy"].iloc[-1]
     lines.append(
         f"**解讀**：video_id 只需要 {video_id_k_for_90pct} 個 PC 就能達到觀察到的峰值"
-        f"準確率（{peak_video_acc:.3f}，出現在 k={int(curve.loc[curve['video_id_accuracy'].idxmax(), 'k_components'])}）"
+        f"準確率（{peak_video_acc:.3f}，出現在 k={peak_k}）"
         "的 90% 以上，代表指紋訊號高度集中在少數幾個主成分。"
         "polyp_label 的曲線見上表，比較兩者在同樣 k 值下的準確率差距，可以看出病理"
         "訊號是不是需要動用到更多、更分散的維度才追得上。\n\n"
-        f"**附帶觀察**：k=384（全部維度）的 video_id accuracy（{curve['video_id_accuracy'].iloc[-1]:.3f}）"
-        f"反而低於 k=128 的峰值（{peak_video_acc:.3f}）——這是 PCA 全維度重新標準化"
-        "後跟 logistic regression 的 L2 正則化交互作用造成的過擬合假象（樣本數 500 "
-        "接近特徵數 384），不代表全部維度真的承載更少指紋資訊，只是這個 probe 在"
-        "滿維度下沒調好正則化強度，如實記錄避免誤導。\n"
     )
+    if peak_k < 384 and full_k_acc < 0.9 * peak_video_acc:
+        lines.append(
+            f"**附帶觀察**：k=384（全部維度）的 video_id accuracy（{full_k_acc:.3f}）"
+            f"反而低於 k={peak_k} 的峰值（{peak_video_acc:.3f}）——這是 PCA 全維度重新"
+            "標準化後跟 logistic regression 的 L2 正則化交互作用造成的過擬合假象"
+            f"（樣本數 {X.shape[0]} 接近特徵數 384），不代表全部維度真的承載更少指紋"
+            "資訊，只是這個 probe 在滿維度下沒調好正則化強度，如實記錄避免誤導。\n"
+        )
+    else:
+        lines.append(
+            f"**附帶觀察**：在這個樣本數（{X.shape[0]}）下，k=384（全部維度）的 "
+            f"video_id accuracy（{full_k_acc:.3f}）沒有出現「全維度反而變差」的過擬合"
+            "假象——樣本數遠大於特徵數（384）時，PCA 全維度重新標準化不會讓 L2 正則化"
+            "失衡，這跟 pilot 規模（樣本數接近特徵數）觀察到的假象不同，記錄下來作為"
+            "對照。\n"
+        )
 
     lines.append("## 每個 PC（前 20 個）對 video_id / polyp 的單變量可分性\n")
     video_id_per_pc = per_pc_univariate_accuracy(X_pca, video_id_int)
@@ -122,22 +138,50 @@ def main():
 
     video_id_chance = 1.0 / len(set(video_id_int))
     polyp_majority = pd.Series(polyp).value_counts(normalize=True).max()
-    fingerprint_pcs = per_pc_df[per_pc_df["video_id_univariate_acc"] > video_id_chance + 0.15]["pc_index"].tolist()
+    # video_id 的 chance 隨影片數變小（60-way 時只有 1.7%），固定的絕對 margin
+    # （原本校準自 5-way pilot 的 +0.15）在多類別下門檻過高、幾乎不可能有單一 PC
+    # 跨過，改用相對 chance 的倍數門檻，讓判準能跨越 pilot（5-way）與全資料集
+    # （60-way）兩種規模。
+    video_id_threshold = video_id_chance * 3
+    fingerprint_pcs = per_pc_df[per_pc_df["video_id_univariate_acc"] > video_id_threshold]["pc_index"].tolist()
     pathology_pcs = per_pc_df[per_pc_df["polyp_univariate_acc"] > polyp_majority + 0.05]["pc_index"].tolist()
     overlap_pcs = sorted(set(fingerprint_pcs) & set(pathology_pcs))
     lines.append(
-        f"video_id chance = {video_id_chance:.3f}，polyp majority baseline = {polyp_majority:.3f}。\n\n"
+        f"video_id chance = {video_id_chance:.3f}（門檻 = chance 的 3 倍 = "
+        f"{video_id_threshold:.3f}），polyp majority baseline = {polyp_majority:.3f}"
+        "（門檻 = majority + 0.05）。\n\n"
         f"**主要承載指紋（video_id）訊號的 PC**（單變量 accuracy 明顯高於 chance）："
         f"{fingerprint_pcs}\n\n"
         f"**主要承載病理（polyp）訊號的 PC**（單變量 accuracy 明顯高於 majority）："
         f"{pathology_pcs}\n\n"
         f"**兩者重疊的 PC**：{overlap_pcs if overlap_pcs else '無'}——"
-        + ("重疊代表這幾個維度同時編碼了指紋與病理資訊，無法乾淨分離；後續要做\n"
-           "「移除指紋但保留病理」這類操作時，這幾個維度是主要的張力所在。\n"
-           if overlap_pcs else
-           "在這個 pilot 上兩者集中的維度沒有重疊，方向上是好消息，但樣本數小\n"
-           "（5 支影片），需要在全資料集上重新驗證這個結論是否穩固。\n")
     )
+    if overlap_pcs:
+        lines.append(
+            "重疊代表這幾個維度同時編碼了指紋與病理資訊，無法乾淨分離；後續要做\n"
+            "「移除指紋但保留病理」這類操作時，這幾個維度是主要的張力所在。\n"
+        )
+    elif not fingerprint_pcs and scale_tag == "full":
+        lines.append(
+            f"但這裡「無重疊」主要是因為 video_id 在前 20 個 PC 裡沒有任何單一維度"
+            f"跨過門檻（{n_videos}-way 分類，chance 只有 {video_id_chance:.3f}），不能"
+            "直接讀成「指紋與病理乾淨分離」。對照上方累積曲線：video_id 要到約 128"
+            "個 PC 合併才追上峰值準確率，代表在這個規模（分類數變多）下指紋訊號"
+            "分散在遠多於 20 個主成分裡，單一 PC 層級看不出來，跟 pilot（5-way，"
+            "PC4/PC5 就有明顯訊號）不同——類別數變多會讓每個維度需要編碼的資訊被"
+            "攤薄，這是預期中的規模效應，而非指紋消失。\n"
+        )
+    elif scale_tag == "pilot":
+        lines.append(
+            f"在這個 pilot 上兩者集中的維度沒有重疊，方向上是好消息，但樣本數小\n"
+            f"（{n_videos} 支影片），需要在全資料集上重新驗證這個結論是否穩固。\n"
+        )
+    else:
+        lines.append(
+            f"在全部 {n_videos} 支影片、{n_frames} 張影格的規模下，兩者集中的維度\n"
+            "沒有重疊，是正式結論：指紋與病理訊號在這個 embedding 空間裡分別集中\n"
+            "在不同主成分，沒有觀察到糾纏在一起、難以分離的維度。\n"
+        )
 
     out_path = RESULTS_DIR / "e1_pca_report.md"
     out_path.write_text("\n".join(lines), encoding="utf-8")

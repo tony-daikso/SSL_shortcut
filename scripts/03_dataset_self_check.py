@@ -33,7 +33,7 @@ def frame_size_check(frame_labels: pd.DataFrame) -> str:
     )
     inconsistent = per_video[per_video["n_distinct_sizes"] > 1]
     lines.append(
-        f"pilot 涵蓋 {frame_labels['video_id'].nunique()} 支影片。"
+        f"共涵蓋 {frame_labels['video_id'].nunique()} 支影片。"
         f"其中 {len(inconsistent)} 支影片內部觀察到超過一種 (width, height) 組合。\n"
     )
     if len(inconsistent):
@@ -151,7 +151,9 @@ def main():
         "（見 09_pilot_sample_frames.py、10_merge_pilot_labels.py），本檔案以下分析"
         "都已改用這批官方原始 pilot 資料重跑。\n"
     )
-    sections = ["# E0d：資料集規格自查（pilot，5 支影片）\n", erratum, frame_size_check(frame_labels), deinterlace_check(frame_labels)]
+    n_videos = frame_labels["video_id"].nunique()
+    scale_tag = "pilot" if n_videos < 60 else "full"
+    sections = [f"# E0d：資料集規格自查（{scale_tag}，{n_videos} 支影片）\n", erratum, frame_size_check(frame_labels), deinterlace_check(frame_labels)]
 
     out_path = RESULTS_DIR / "dataset_self_check.md"
     out_path.write_text("\n".join(sections), encoding="utf-8")

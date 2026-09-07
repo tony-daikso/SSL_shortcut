@@ -60,6 +60,45 @@ def train_test_split_baseline(
     }
 
 
+def train_test_split_baseline_repeated(
+    df: pd.DataFrame, label_col: str, feature_cols=GEOMETRY_FEATURES,
+    test_size: float = 0.2, n_repeats: int = 10,
+) -> dict:
+    """`train_test_split_baseline` 的多次重複版：不同 random_state 各切一次
+    train/test 取平均 ± 標準差，避免單一 split 剛好抽到極端影片組合造成的
+    偶然結果。資料量夠大（例如全部 60 支影片）時應該用這個而不是單一 split。"""
+    accs, majority_accs = [], []
+    n_train_videos = n_test_videos = n_train_frames = n_test_frames = None
+    valid_repeats = 0
+    for seed in range(n_repeats):
+        gss = GroupShuffleSplit(n_splits=1, test_size=test_size, random_state=seed)
+        train_idx, test_idx = next(gss.split(df, groups=df["video_id"]))
+        train, test = df.iloc[train_idx], df.iloc[test_idx]
+        if train[label_col].nunique() < 2:
+            continue
+
+        X_train, y_train = train[feature_cols].values, train[label_col].values
+        X_test, y_test = test[feature_cols].values, test[label_col].values
+        pred = _fit_predict(X_train, y_train, X_test)
+        accs.append(float((pred == y_test).mean()))
+
+        majority_class = pd.Series(y_train).mode().iloc[0]
+        majority_accs.append(float((y_test == majority_class).mean()))
+        n_train_videos, n_test_videos = train["video_id"].nunique(), test["video_id"].nunique()
+        n_train_frames, n_test_frames = len(train), len(test)
+        valid_repeats += 1
+
+    chance = 1.0 / df[label_col].nunique()
+    return {
+        "n_train_frames": n_train_frames, "n_test_frames": n_test_frames,
+        "n_train_videos": n_train_videos, "n_test_videos": n_test_videos,
+        "mean_accuracy": float(np.mean(accs)) if accs else float("nan"),
+        "std_accuracy": float(np.std(accs)) if accs else float("nan"),
+        "mean_majority_baseline": float(np.mean(majority_accs)) if majority_accs else float("nan"),
+        "uniform_chance": chance, "n_valid_repeats": valid_repeats, "n_repeats": n_repeats,
+    }
+
+
 def leave_one_video_out_baseline(df: pd.DataFrame, label_col: str, feature_cols=GEOMETRY_FEATURES) -> dict:
     """留一支影片出來測試，輪流跑完所有影片（適合資料量小、想榨乾樣本數的情境，例如
     cohort 002 內部的 brand within-cohort control）。"""

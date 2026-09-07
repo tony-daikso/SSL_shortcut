@@ -4,7 +4,8 @@
 https://app.notion.com/p/3d08ebc0eef38055834bc7ab97b3f024
 
 本 repo 目前涵蓋計畫 §6 的 **E0：資料準備**、**E0e：FOV 幾何洩漏檢查**、
-**E0.5：合成指紋校準**、**E1：L1 指紋可解碼性**（pilot 規模流程驗證）。
+**E0.5：合成指紋校準**、**E1：L1 指紋可解碼性**——E0/E0e/E1 已在全部 60 支影片
+規模上完成（正式結論，非 pilot 流程驗證）。
 
 ## 跟 SSL_research（既有 Phase 0 repo）的關係
 
@@ -23,12 +24,11 @@ probe，已有初步 GO 結論）。這個 repo 是刻意**獨立重新建立**�
   解析出的**完整逐格**病理標籤——2,757,723 列，覆蓋率 100%（每一格都有一個 annotation
   XML，只是沒有病灶時 `<object>` 是空的），加權平均 polyp 比例 12.41%，跟官方論文的
   「87.6% 影格無標註」完全吻合。這是全資料集層級（不只 pilot）都可信的權威資料。
-- `data/sampled_frames/{video_id}/`：pilot 影格像素資料，來自 Figshare 官方原始
-  `{video_id}_frames.tar.gz`（每支 7-16GB，60 支加總遠超本機可用空間，只能一支一支
-  下載、抽完立刻刪除），每支影片在**中間 1/3 時間軸**隨機抽 100 張（見
-  `09_pilot_sample_frames.py`）。**目前只有 5 支影片的 pilot**（001-001、002-004、
-  002-006、003-001、004-003，涵蓋 4 個 cohort、兩種品牌），驗證流程正確；是否擴大到
-  全部 60 支待決定。
+- `data/sampled_frames/{video_id}/`：影格像素資料，來自 Figshare 官方原始
+  `{video_id}_frames.tar.gz`（每支 7-16GB，60 支加總遠超本機可用空間，一支一支
+  下載/從 NAS 備份解壓、抽完立刻刪除原始 tar），每支影片在**中間 1/3 時間軸**隨機
+  抽 100 張（見 `09_pilot_sample_frames.py`）。**已完成全部 60 支影片**（共 6000
+  張，取代 2026-09-03 的 5 支影片 pilot）。
 
 ### 修正記錄（2026-09-03）
 
@@ -61,7 +61,7 @@ python3 06_verify_unify_crop.py          # E0e-3/4：套用統一裁切協定 + 
 python3 11_e05_prepare_images.py         # E0.5：注入合成指紋（pattern_noise/color_shift）
 python3 12_e05_extract_embeddings.py     # 對合成影像跑 frozen DINOv2 抽 embedding
 python3 13_e05_run_probes.py             # E0.5a/b/c：linear probe 驗證 + 機制檢驗
-python3 14_e1_extract_embeddings.py      # E1：對 500 張真實影格跑 3 種 backbone 抽 embedding
+python3 14_e1_extract_embeddings.py      # E1：對真實影格跑 3 種 backbone 抽 embedding
 python3 15_e1_probes.py                  # E1a/b/d：指紋/病理 probe + backbone 對照
 python3 16_e1_pca_analysis.py            # E1c：PCA 維度分析
 ```
@@ -73,8 +73,8 @@ PNG（500 張底圖 x 5 個變體），沒有進 git（可重新產生，見 `.g
 - `video_manifest.csv`：60 支影片的來源/metadata 標籤（不含 split，見上方修正記錄）
 - `full_annotation_labels.csv` / `annotation_coverage.csv`：官方完整逐格病理標籤
 - `confound_report.md`：E0c 報表（Part A 病灶層級、Part B frame 層級，兩者都是官方完整資料）
-- `pilot_sampled_frames.csv` / `pilot_frame_labels.csv`：pilot 5 支影片、500 張影格的
-  像素導出特徵 + 三組標籤
+- `pilot_sampled_frames.csv` / `pilot_frame_labels.csv`：全部 60 支影片、6000 張
+  影格的像素導出特徵 + 三組標籤（檔名沿用 pilot 前綴，內容已是全資料集）
 - `dataset_self_check.md`：E0d 報表
 - `qc_deinterlace_samples/`：去交錯自查挑出的可疑影格裁切圖，供肉眼複查
 - `fov_geometry.csv` / `fov_e0e_baseline_report.md`：E0e-1/2，每支影片的幾何特徵 +
@@ -84,10 +84,10 @@ PNG（500 張底圖 x 5 個變體），沒有進 git（可重新產生，見 `.g
 - `qc_unify_crop_samples/`：裁切前後對照圖，供肉眼複查
 - `e05_image_manifest.csv` / `e05_embeddings.npz` / `e05_report.md`：E0.5 合成指紋
   校準的完整結果（三項判準 E0.5a/b/c 全數通過）
-- `e1_embeddings.npz` / `e1_probe_report.md` / `e1_pca_report.md`：E1a/b/c/d 的
-  pilot 驗證結果（完整結論見 [docs/E1_summary.md](docs/E1_summary.md)）
+- `e1_embeddings.npz` / `e1_probe_report.md` / `e1_pca_report.md`：E1a/b/c/d 在
+  全部 60 支影片上的正式結果（完整結論見 [docs/E1_summary.md](docs/E1_summary.md)）
 
-## 四個值得注意的發現
+## 五個值得注意的發現
 
 1. **FOV 角落遮罩殘留**：E0d 一開始用「整行/整列是否全黑」檢查，結論是「幾乎沒有」，
    但這個方法有漏洞——內視鏡遮罩是圓形/八邊形，黑色只出現在四個角落，不會讓整行/整列
@@ -102,10 +102,18 @@ PNG（500 張底圖 x 5 個變體），沒有進 git（可重新產生，見 `.g
    `PYTHONHASHSEED` 隨機化換一組不同的雜訊/色偏，完全不可重現，一度讓校準過程
    誤以為是振幅在造成數字跳動。改用 `hashlib.md5` 後解決，見
    `scripts/e05_fingerprints.py`。
-4. **隨機初始化的 DINOv2 就能把 video ID 猜到 78.9%**（chance 20%，frozen 預訓練
-   版是 91.0%）——E1b 的 backbone 對照顯示，相當一部分「指紋可解碼性」其實是任何
-   ViT 架構的歸納偏見造成的附帶編碼，不是 SSL 目標函數主動學來的。詳見
-   `docs/E1_summary.md`。
+4. **隨機初始化的 DINOv2 在全部 60 支影片（60-way）規模下就能把 video ID 猜到
+   28.8%**（chance 只有 1.7%，約 17 倍；frozen 預訓練版是 47.5%）——E1b 的
+   backbone 對照顯示，相當一部分「指紋可解碼性」其實是任何 ViT 架構的歸納偏見
+   造成的附帶編碼，不是 SSL 目標函數主動學來的，而且分類任務變難（60-way）後這個
+   相對優勢反而更明顯。詳見 `docs/E1_summary.md`。
+5. **本研究最核心的對比：指紋可分性遠超病理可分性**——同一個 frozen DINOv2
+   embedding 空間裡，video ID（47.5%，chance 1.7%）、cohort（62.8%，chance
+   25%）、endoscope brand（95.9%，majority 88.3%）都遠遠甩開各自的 chance/
+   majority baseline；polyp_label 卻幾乎貼著、甚至略低於 majority baseline
+   （89.0%／85.5%，majority 85.8%）。在全部 60 支影片規模下，這個對比穩固成立，
+   支持「acquisition shortcut」確實存在：embedding 把容量分配在採集特徵上遠勝於
+   病理特徵。詳見 `docs/E1_summary.md` 的 E1d 段落。
 
 完整結論與交接記錄見 [docs/E0_summary.md](docs/E0_summary.md)、
 [docs/E1_summary.md](docs/E1_summary.md)。

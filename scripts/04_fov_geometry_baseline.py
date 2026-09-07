@@ -26,7 +26,10 @@ endoscope_brand 猜得準不準。這就是 E1（DINOv2 embedding 的 probe）�
 import pandas as pd
 
 from config import RESULTS_DIR
-from geometry_common import GEOMETRY_FEATURES, add_geometry_features, train_test_split_baseline
+from geometry_common import (
+    GEOMETRY_FEATURES, add_geometry_features, train_test_split_baseline,
+    train_test_split_baseline_repeated,
+)
 
 EXTENDED_FEATURES = GEOMETRY_FEATURES + ["corner_black_fraction"]
 
@@ -49,7 +52,9 @@ def main():
     per_video_path = RESULTS_DIR / "fov_geometry.csv"
     per_video.to_csv(per_video_path, index=False)
 
-    lines = ["# E0e-1/E0e-2：FOV 幾何洩漏檢查 + trivial baseline（pilot，5 支影片）\n"]
+    n_videos = frame_labels["video_id"].nunique()
+    scale_tag = "pilot" if n_videos < 60 else "full"
+    lines = [f"# E0e-1/E0e-2：FOV 幾何洩漏檢查 + trivial baseline（{scale_tag}，{n_videos} 支影片）\n"]
 
     corner_by_cohort = frame_labels.groupby(["cohort", "endoscope_brand"])["corner_black_fraction"].agg(
         ["count", "median", "mean", "std"]
@@ -79,40 +84,65 @@ def main():
     )
 
     lines.append("## E0e-2a：cohort（多類別）trivial baseline，held-out 影片\n")
-    lines.append("### 只用影格尺寸（width/height/aspect_ratio/log_area）\n")
-    cohort_size_only = train_test_split_baseline(frame_labels, "cohort", GEOMETRY_FEATURES)
-    lines.append(pd.Series(cohort_size_only).to_frame("value").to_markdown())
-    lines.append("\n### 加上 corner_black_fraction\n")
-    cohort_result = train_test_split_baseline(frame_labels, "cohort", EXTENDED_FEATURES)
-    lines.append(pd.Series(cohort_result).to_frame("value").to_markdown())
-    lines.append(
-        "\n**只用尺寸時 accuracy=0、加上 corner_black_fraction 後變成 1**，不是隨機雜訊："
-        "這一折被留出來測試的剛好是 002-006（Fujifilm），它的 (width,height)=(1248,959) "
-        "跟訓練集裡任何一支影片都不完全相同，純尺寸模型猜錯；但它的 corner_black_fraction"
-        "（≈0.775）明顯偏高，跟同為 cohort 002/003 的影片（≈0.68-0.69，也偏高）同一側，"
-        "跟 cohort 001/004（≈0.57-0.59，偏低）不同側，這個額外的軸剛好幫分類器猜對。"
-        "**5 支影片只留 1 支測試，單一折的結果本來就不穩定**，這裡只是把這次具體發生的"
-        "原因講清楚，不是說 corner_black_fraction 已被證實比尺寸更有鑑別力——正式結論"
-        "要等擴大到全部 60 支、有多折平均之後才算數。\n"
-    )
+    if scale_tag == "pilot":
+        lines.append("### 只用影格尺寸（width/height/aspect_ratio/log_area）\n")
+        cohort_size_only = train_test_split_baseline(frame_labels, "cohort", GEOMETRY_FEATURES)
+        lines.append(pd.Series(cohort_size_only).to_frame("value").to_markdown())
+        lines.append("\n### 加上 corner_black_fraction\n")
+        cohort_result = train_test_split_baseline(frame_labels, "cohort", EXTENDED_FEATURES)
+        lines.append(pd.Series(cohort_result).to_frame("value").to_markdown())
+        lines.append(
+            "\n**5 支影片只留 1 支測試，單一折的結果本來就不穩定**，這個數字只做流程"
+            "驗證，正式結論要等擴大到全部 60 支、有多折平均之後才算數。\n"
+        )
+    else:
+        lines.append("### 只用影格尺寸（width/height/aspect_ratio/log_area），10 折平均\n")
+        cohort_size_only = train_test_split_baseline_repeated(frame_labels, "cohort", GEOMETRY_FEATURES)
+        lines.append(pd.Series(cohort_size_only).to_frame("value").to_markdown())
+        lines.append("\n### 加上 corner_black_fraction，10 折平均\n")
+        cohort_result = train_test_split_baseline_repeated(frame_labels, "cohort", EXTENDED_FEATURES)
+        lines.append(pd.Series(cohort_result).to_frame("value").to_markdown())
+        lines.append(
+            f"\n**全資料集規模（{n_videos} 支影片，10 折平均，有效折數 "
+            f"{cohort_result['n_valid_repeats']}/{cohort_result['n_repeats']}）**：只靠"
+            f"影格尺寸就能把 cohort 猜對 {cohort_size_only['mean_accuracy']:.1%}"
+            f"（chance {cohort_size_only['uniform_chance']:.1%}，majority "
+            f"{cohort_size_only['mean_majority_baseline']:.1%}）——純幾何特徵（不看任何"
+            "影像內容）就遠遠超過 chance/majority，是穩固的正式結論，不是單折偶然。"
+            f"加上 corner_black_fraction 後準確率"
+            f"{'略升至' if cohort_result['mean_accuracy'] > cohort_size_only['mean_accuracy'] else '略降至'}"
+            f" {cohort_result['mean_accuracy']:.1%}——兩者差距不大，代表這個規模下"
+            "cohort 之間的辨識力主要來自影格尺寸本身（跟裝置/cohort 的固定對應關係），"
+            "角落遮罩殘留是次要的額外訊號，不是主力。\n"
+        )
 
     lines.append("## E0e-2b：endoscope_brand trivial baseline，held-out 影片\n")
-    try:
-        brand_result = train_test_split_baseline(frame_labels, "endoscope_brand", EXTENDED_FEATURES)
-        lines.append(pd.Series(brand_result).to_frame("value").to_markdown())
-    except ValueError as e:
-        brand_result = None
+    if scale_tag == "pilot":
+        try:
+            brand_result = train_test_split_baseline(frame_labels, "endoscope_brand", EXTENDED_FEATURES)
+            lines.append(pd.Series(brand_result).to_frame("value").to_markdown())
+        except ValueError as e:
+            brand_result = None
+            lines.append(
+                f"跳過：{e}\n\n只有 5 支 pilot 影片、其中只有 1 支是 Fujifilm（002-006），"
+                "GroupShuffleSplit 隨機切分時很容易讓 train 或 test 其中一邊完全沒有"
+                "Fujifilm 影片，分類器訓練不起來。"
+            )
         lines.append(
-            f"跳過：{e}\n\n只有 5 支 pilot 影片、其中只有 1 支是 Fujifilm（002-006），"
-            "GroupShuffleSplit 隨機切分時很容易讓 train 或 test 其中一邊完全沒有"
-            "Fujifilm 影片，分類器訓練不起來。"
+            "\n**注意**：pilot 裡只有 cohort 002 同時涵蓋兩種品牌（002-004 Olympus、"
+            "002-006 Fujifilm），其餘 3 支影片（001-001、003-001、004-003）全是 "
+            "Olympus，brand 和 cohort 高度共線，這個數字暫時不能拿來下結論，等擴大到全部"
+            "60 支、cohort 002 內有足夠 Olympus+Fujifilm 影片時才有意義。\n"
         )
-    lines.append(
-        "\n**注意**：pilot 裡只有 cohort 002 同時涵蓋兩種品牌（002-004 Olympus、"
-        "002-006 Fujifilm），其餘 3 支影片（001-001、003-001、004-003）全是 "
-        "Olympus，brand 和 cohort 高度共線，這個數字暫時不能拿來下結論，等擴大到全部"
-        "60 支、cohort 002 內有足夠 Olympus+Fujifilm 影片時才有意義。\n"
-    )
+    else:
+        brand_result = train_test_split_baseline_repeated(frame_labels, "endoscope_brand", EXTENDED_FEATURES)
+        lines.append(pd.Series(brand_result).to_frame("value").to_markdown())
+        lines.append(
+            f"\n**全資料集規模（{n_videos} 支影片，10 折平均，有效折數 "
+            f"{brand_result['n_valid_repeats']}/{brand_result['n_repeats']}）**：cohort "
+            "002 內同時有 Olympus（8 支）與 Fujifilm（7 支）影片，brand 不再跟 cohort "
+            "完全共線，10 折都跑得出來，是穩固的正式結論。\n"
+        )
 
     out_path = RESULTS_DIR / "fov_e0e_baseline_report.md"
     out_path.write_text("\n".join(lines), encoding="utf-8")

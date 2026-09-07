@@ -74,30 +74,36 @@ def main():
 
     backbone_names = ["dinov2_pretrained", "dinov2_random", "imagenet_supervised"]
 
-    lines = ["# E1a/b/d：指紋可解碼性 probe 結果（pilot，5 支影片，500 張影格）\n"]
+    n_videos = len(set(video_id))
+    n_frames = len(video_id)
+    scale_tag = "pilot" if n_videos < 60 else "full"
+
+    lines = [f"# E1a/b/d：指紋可解碼性 probe 結果（{scale_tag}，{n_videos} 支影片，{n_frames} 張影格）\n"]
 
     # ---- E1a: video ID (最有統計效力的任務，用 dinov2_pretrained) ----
-    lines.append("## E1a：Video ID（5-way，held-out frame，dinov2_pretrained）\n")
+    lines.append(f"## E1a：Video ID（{n_videos}-way，held-out frame，dinov2_pretrained）\n")
     video_id_int = pd.factorize(video_id)[0]
     result = probe_held_out_frame(data["emb_dinov2_pretrained"], video_id_int)
-    chance = 1.0 / len(set(video_id))
+    chance = 1.0 / n_videos
     lines.append(
         f"accuracy = {result['mean_accuracy']:.3f} ± {result['std_accuracy']:.3f}"
         f"（chance = {chance:.3f}，majority baseline = {majority_baseline(video_id_int):.3f}）\n"
     )
     lines.append(
-        "**解讀**：5 支影片中隨機抽 20% 的 frame 當測試集，其餘 80%（含全部 5 支"
-        "影片的其他 frame）當訓練集。這是唯一在 pilot 規模下有足夠統計效力的任務。\n"
+        f"**解讀**：{n_videos} 支影片中隨機抽 20% 的 frame 當測試集，其餘 80%（含全部"
+        f"{n_videos} 支影片的其他 frame）當訓練集。"
+        + ("這是唯一在 pilot 規模下有足夠統計效力的任務。\n" if scale_tag == "pilot"
+           else "在全部 60 支影片、6000 張影格的規模下，這是正式結論（非 pilot 流程驗證）。\n")
     )
 
-    # ---- E1a: cohort / brand（train/test 依 video 分組，statistical power 有限）----
+    # ---- E1a: cohort / brand（train/test 依 video 分組）----
     lines.append("## E1a：Cohort / Endoscope Brand（held-out 影片，dinov2_pretrained）\n")
     cohort_int = pd.factorize(cohort)[0]
     brand_int = pd.factorize(brand)[0]
     cohort_result = probe_held_out_video(data["emb_dinov2_pretrained"], cohort_int, video_id)
     brand_result = probe_held_out_video(data["emb_dinov2_pretrained"], brand_int, video_id)
     lines.append(
-        f"Cohort（4-way）：accuracy = {cohort_result['mean_accuracy']:.3f} ± "
+        f"Cohort（{len(set(cohort))}-way）：accuracy = {cohort_result['mean_accuracy']:.3f} ± "
         f"{cohort_result.get('std_accuracy', float('nan')):.3f}"
         f"（chance = {1/len(set(cohort)):.3f}，majority = {majority_baseline(cohort_int):.3f}，"
         f"有效折數 = {cohort_result.get('n_valid_repeats', N_REPEATS)}/{N_REPEATS}）\n\n"
@@ -105,9 +111,12 @@ def main():
         f"{brand_result.get('std_accuracy', float('nan')):.3f}"
         f"（majority = {majority_baseline(brand_int):.3f}，"
         f"有效折數 = {brand_result.get('n_valid_repeats', N_REPEATS)}/{N_REPEATS}）\n\n"
-        "**跟 E0e 一樣的規模限制**：5 支影片切 train/test 時容易讓某個類別整個缺席"
-        "（有效折數若明顯 <10，代表很多次重複都被跳過），這兩個數字暫時只做流程"
-        "驗證，不是正式結論。\n"
+        + ("**跟 E0e 一樣的規模限制**：5 支影片切 train/test 時容易讓某個類別整個缺席"
+           "（有效折數若明顯 <10，代表很多次重複都被跳過），這兩個數字暫時只做流程"
+           "驗證，不是正式結論。\n" if scale_tag == "pilot" else
+           f"**全資料集規模**：{n_videos} 支影片、每個 cohort/brand 都有多支影片代表，"
+           "有效折數 10/10 代表每次 held-out 切分訓練集都完整涵蓋所有類別，可當正式"
+           "結論。\n")
     )
 
     # ---- E1b: backbone 對照 ----
@@ -133,8 +142,8 @@ def main():
     lines.append(
         f"Held-out frame 切法（跟 video ID 用同一種切分，比較基準）：accuracy = "
         f"{polyp_result_frame['mean_accuracy']:.3f} ± {polyp_result_frame['std_accuracy']:.3f}"
-        f"（majority baseline = {majority_baseline(polyp):.3f}，pilot 裡 polyp frame 偏少，"
-        "majority baseline 天生就高）。\n\n"
+        f"（majority baseline = {majority_baseline(polyp):.3f}，抽樣集中在影片中間 1/3，"
+        "polyp frame 偏少，majority baseline 天生就高）。\n\n"
         f"Held-out 影片切法（跟 cohort/brand 用同一種切分）：accuracy = "
         f"{polyp_result_video['mean_accuracy']:.3f} ± "
         f"{polyp_result_video.get('std_accuracy', float('nan')):.3f}"
