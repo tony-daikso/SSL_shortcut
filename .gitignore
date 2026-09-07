@@ -17,3 +17,9 @@ data/sampled_frames/
 # （方便中斷後 rebuild_from_existing() 復原），內容已經合併進
 # results/pilot_sampled_frames.csv，不需要另外進 git。
 results/pilot_sampled_frames_*.csv
+
+# 25_e5_train_dino.py 的訓練輸出（checkpoint.pt 動輒數百 MB、train_log.csv 是
+# 訓練過程細節，不是分析結果）。26_e5_extract_embeddings.py 從 checkpoint 抽出的
+# results/e5_embeddings_*.npz 跟 27_e5_compare_probes.py 的比較報告才需要保留。
+results/e5_dino_*/
+results/e5_smoke_test*/

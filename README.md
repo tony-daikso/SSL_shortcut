@@ -7,6 +7,8 @@ https://app.notion.com/p/3d08ebc0eef38055834bc7ab97b3f024
 **E0.5：合成指紋校準**、**E1：L1 指紋可解碼性**、**E3：augmentation 劑量反應**、
 **E4：機制推導的修法（雜訊白化）**——除 E0.5（設計上維持 pilot 規模當陽性對照）
 外，其餘都已在全部 60 支影片規模上完成（正式結論，非 pilot 流程驗證）。
+**E5：在 REAL-Colon 上自訓 DINO** 的程式碼已寫好、在本機通過小規模 smoke
+test，正式訓練需要遠端 GPU 執行，見 [docs/E5_notes.md](docs/E5_notes.md)。
 
 ## 跟 SSL_research（既有 Phase 0 repo）的關係
 
@@ -73,6 +75,9 @@ python3 21_e4_extract_synthetic_embeddings.py  # E4a：合成指紋跨白化強�
 python3 22_e4_extract_real_embeddings.py       # E4d：真實影格跨白化強度抽 embedding
 python3 23_e4_ssim_control.py                  # E4：SSIM trivial-destruction control
 python3 24_e4_probes.py                        # E4：驗證迴路 + 病理代價判讀
+python3 25_e5_train_dino.py --output-dir ../results/e5_dino_standard   # E5a：自訓 DINO（需 GPU，見 docs/E5_notes.md）
+python3 26_e5_extract_embeddings.py --checkpoint ... --tag ...         # E5b：對自訓 checkpoint 抽 embedding
+python3 27_e5_compare_probes.py                                        # E5b：跟 E1 既有 backbone 比較指紋可分性
 ```
 
 `data/e05_synthetic/` 是 `11_e05_prepare_images.py` 從固定 seed 決定性產生的 2500 張
@@ -101,6 +106,9 @@ PNG（500 張底圖 x 5 個變體），沒有進 git（可重新產生，見 `.g
 - `e4_synthetic_embeddings.npz` / `e4_real_embeddings.npz` / `e4_ssim_control.csv` /
   `e4_whitening_report.md`：E4a/d 雜訊白化驗證的完整結果（完整結論見
   [docs/E4_summary.md](docs/E4_summary.md)）
+- `e5_embeddings_*.npz` / `e5_compare_report.md`：E5b 自訓 DINO 跟現成
+  DINOv2 的指紋可分性對照（訓練本身需要遠端 GPU，程式碼與操作說明見
+  [docs/E5_notes.md](docs/E5_notes.md)，正式結論待遠端訓練完成後補上）
 
 ## 七個值得注意的發現
 
