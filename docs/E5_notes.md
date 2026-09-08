@@ -117,3 +117,21 @@ L40S，需要視情況大幅縮小或拉長訓練時間，`train_log.csv` 的 lo
 5. 這份文件寫成時只完成程式碼與 smoke test，**E5a/b/c 的正式結論都還沒有**，
    需要在遠端 GPU 完成正式訓練後另外補上（比照 `docs/E1_summary.md`/
    `E3_summary.md`/`E4_summary.md` 的格式）。
+6. **SSL 語料涵蓋全部 60 支影片，backbone 對任何按 video_id 切的下游 test
+   split 都不是真正「沒看過」**——`27_e5_compare_probes.py` 的 probe 評估雖然
+   有按 `video_id` 做 GroupShuffleSplit，但那只切給 probe classifier 的
+   train/test，DINO backbone 本身在無標籤的 SSL 階段已經看過全部 60 支影片的
+   畫面（沒有 label，但有 pixel-level 曝光）。這代表：
+   - 若之後要拿這個 E5 backbone 做「按影片切分」的監督式下游評估，且評估用的
+     還是 REAL-Colon 這批影片，backbone 對 test 影片並非真正未見過，嚴格來說
+     算一種 pixel-level（非 label）洩漏——這其實正是本專案在探討的「捷徑/
+     指紋」問題本身的一個變形。
+   - 若下游改用完全不重疊的另一個 dataset（不同病人/不同影片來源），這個特定
+     洩漏管道就不存在（backbone 沒看過那些畫面），但要先確認真的沒有來源重疊
+     （REAL-Colon 是公開資料集，需查證新 dataset 是否共用同一批病人/study）；
+     且「沒洩漏」不代表遷移效果會好——REAL-Colon 特有的指紋型捷徑換到差異大
+     的新 domain 大概率不會用同樣方式起作用，但這是 domain shift 的問題，跟
+     洩漏是兩件事。
+   - 更嚴謹的作法：未來若要對 backbone 本身做乾淨的 held-out 評估，應該在
+     SSL 語料池階段就預留幾支影片完全不放進訓練，專門當作下游 held-out set，
+     而不是只在 probe 訓練階段才切分。目前 E5 沒有這麼做。
