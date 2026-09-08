@@ -11,7 +11,9 @@ data/e05_synthetic/
 # 全部 60 支影片、6000 張抽樣影格像素資料（~2GB），由 09_pilot_sample_frames.py
 # 用固定 SAMPLE_SEED 決定性重新抽樣、下載得到，可重新產生，不需要進 git。
 # pilot_sampled_frames.csv / pilot_frame_labels.csv 才是需要保留的分析結果。
-data/sampled_frames/
+# 注意：不加尾斜線，這樣遠端 server 上把它建成 symlink（指到持久化磁碟）時，
+# 這條規則依然生效——尾斜線版本只匹配真正的目錄，不匹配 symlink。
+data/sampled_frames
 
 # 09_pilot_sample_frames.py 每支影片下載/抽樣完當下寫的逐支影片 checkpoint
 # （方便中斷後 rebuild_from_existing() 復原），內容已經合併進
@@ -21,5 +23,11 @@ results/pilot_sampled_frames_*.csv
 # 25_e5_train_dino.py 的訓練輸出（checkpoint.pt 動輒數百 MB、train_log.csv 是
 # 訓練過程細節，不是分析結果）。26_e5_extract_embeddings.py 從 checkpoint 抽出的
 # results/e5_embeddings_*.npz 跟 27_e5_compare_probes.py 的比較報告才需要保留。
-results/e5_dino_*/
-results/e5_smoke_test*/
+# 不加尾斜線，理由同上（symlink 相容）。
+results/e5_dino_*
+results/e5_smoke_test*
+
+# E5 訓練跑在遠端 GPU server 時的 driver script stdout 記錄，純方便回頭查訓練
+# 過程，不是分析結果，不需要進 git。
+results/e5_train_run.log
+results/e5_compare_probes.log
